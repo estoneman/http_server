@@ -22,6 +22,9 @@ inline int fill_socket_info(struct addrinfo **, struct addrinfo **, const char *
 inline void *get_inetaddr(struct sockaddr *);
 inline int is_valid_port(const char *);
 
+// debug
+inline void todo(const char *func);
+
 int fill_socket_info(struct addrinfo **srv_entries, struct addrinfo **srv_entry,
                      const char *port) {
   int sockfd, addrinfo_status;
@@ -85,6 +88,10 @@ void *get_inetaddr(struct sockaddr *sa) {
 int is_valid_port(const char *arg) {
   int port = atoi(arg);
   return (port >= 1024 && port <= 65535);
+}
+
+void todo(const char *func) {
+  fprintf(stderr, "%s is not implemented.. yet\n", func);
 }
 
 #endif  // HTTP_SERVER_H
