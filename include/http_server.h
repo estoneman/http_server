@@ -59,13 +59,13 @@ inline ssize_t https_recv(int, char *);
 inline int is_valid_port(const char *);
 inline size_t parse_command(char *, HTTPCommand *);
 inline size_t parse_headers(char *, HTTPHeader *, size_t *);
-inline void print_header(HTTPHeader);
-inline void print_headers(HTTPHeader *, size_t);
-inline void print_command(HTTPCommand);
 inline size_t read_until(char *buf, char *out, char end);
 inline int validate_port(const char *);
 
 // debug
+inline void print_header(HTTPHeader);
+inline void print_headers(HTTPHeader *, size_t);
+inline void print_command(HTTPCommand);
 inline void todo(const char *func);
 
 void alloc_hdr(HTTPHeader *hdrs, size_t size, size_t nmemb) {
@@ -236,25 +236,6 @@ size_t parse_headers(char *buf, HTTPHeader *hdrs, size_t *n_hdrs) {
   return global_offset + 2;  // move past final CRLF
 }
 
-void print_header(HTTPHeader hdr) {
-  puts("HTTPHeader {");
-  printf("  key: %s\n  value: %s\n", hdr.key, hdr.value);
-  puts("}");
-}
-
-void print_headers(HTTPHeader *hdrs, size_t n_hdrs) {
-  for (size_t i = 0; i < n_hdrs; ++i) {
-    print_header(hdrs[i]);
-  }
-}
-
-void print_command(HTTPCommand command) {
-  puts("HTTPCommand {");
-  printf("  method: %s\n  uri: %s\n  version: %s\n", command.method,
-         command.uri, command.version);
-  puts("}");
-}
-
 size_t read_until(char *buf, char *out, char end) {
   size_t len_out, i;
 
@@ -280,7 +261,26 @@ int validate_port(const char *user_port) {
   return port >= MIN_PORT && port <= MAX_PORT;
 }
 
-// debu functions
+// debug functions
+void print_header(HTTPHeader hdr) {
+  puts("HTTPHeader {");
+  printf("  key: %s\n  value: %s\n", hdr.key, hdr.value);
+  puts("}");
+}
+
+void print_headers(HTTPHeader *hdrs, size_t n_hdrs) {
+  for (size_t i = 0; i < n_hdrs; ++i) {
+    print_header(hdrs[i]);
+  }
+}
+
+void print_command(HTTPCommand command) {
+  puts("HTTPCommand {");
+  printf("  method: %s\n  uri: %s\n  version: %s\n", command.method,
+         command.uri, command.version);
+  puts("}");
+}
+
 void todo(const char *func) {
   fprintf(stderr, "%s is not implemented.. yet\n", func);
 }
