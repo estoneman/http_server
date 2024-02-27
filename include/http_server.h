@@ -217,15 +217,6 @@ size_t parse_command(char *recv_buf, HTTPCommand *command) {
   return offset;
 }
 
-/*
- * -- NOTE --
- * parser unstable when delimiter occurs in unexpected locations of a given
- * header
- */
-
-// TODO: read line by line and emit a HTTPHeader structure each read, store in
-// buffer once line is read
-//   - a line is defined as a sequence of characters ending with \r\n
 size_t parse_headers(char *buf, HTTPHeader *hdrs, size_t *n_hdrs) {
   char line[HTTP_MAXLINE + 1];
   size_t global_offset, local_offset, i;
