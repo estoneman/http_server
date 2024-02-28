@@ -23,6 +23,7 @@
 #define HTTP_MAX_HDRS 1024
 #define HTTP_MAX_HDR_SZ 1024
 #define HTTP_MAX_RECV (1024 * 1024)
+#define HTTP_MAX_SEND (1024 * 1024) // change me when responding w/ files
 #define HTTP_MAX_METHOD_LENGTH 32
 #define HTTP_MAX_URI_LENGTH 1024
 #define HTTP_MAX_VERSION_LENGTH 32
@@ -56,6 +57,7 @@ inline void *get_inetaddr(struct sockaddr *);
 inline void get_ipstr(char *, struct addrinfo *);
 inline size_t http_readline(char *recv_buf, char *line_buf);
 inline ssize_t https_recv(int, char *);
+inline ssize_t https_send(int, char *);
 inline int is_valid_port(const char *);
 inline size_t parse_command(char *, HTTPCommand *);
 inline size_t parse_headers(char *, HTTPHeader *, size_t *);
@@ -195,6 +197,39 @@ ssize_t https_recv(int sockfd, char *recv_buf) {
   recv_buf[nb_recv] = '\0';
 
   return nb_recv;
+}
+
+ssize_t https_send(int sockfd, char *send_buf) {
+  ssize_t nb_sent;
+  char fake_data[] = "<html>"
+                     "<head>"
+                     "<title>Test Page</title>"
+                     "</head>"
+                     "<body><h1>Hello, Sailor!</body>"
+                     "</html>";
+
+  char headers[1024];
+
+  strcpy(headers, "HTTP/1.1 200 OK\r\n"
+                  "Content-Type: text/html charset=utf-8\r\n"
+                  "Connection: keep-alive\r\n"
+                  "Date: Tue, 22 Feb 2022 12:00:00 GMT\r\n"
+                  "Server: MyHTTPServer/1.0\r\n");
+  char content_length[64];
+  snprintf(content_length, sizeof(content_length), "Content-Length: %zu\r\n\r\n",
+           strlen(fake_data));
+  
+  // Concatenate headers and data into a single C string
+  snprintf(send_buf, strlen(fake_data) + strlen(headers)
+           + strlen(content_length), "%s%s%s", headers, content_length,
+           fake_data);
+
+  if ((nb_sent = send(sockfd, send_buf, strlen(send_buf), 0)) < 0) {
+    perror("send");
+    return -1;
+  }
+
+  return nb_sent;
 }
 
 int is_valid_port(const char *arg) {
