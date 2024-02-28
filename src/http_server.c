@@ -22,7 +22,7 @@ int main(int argc, char *argv[]) {
   socklen_t cliaddr_len;
   int listenfd, connfd;
   char port[PORT_LEN], ipstr[INET6_ADDRSTRLEN];
-  char *recv_buf;
+  char *recv_buf, *send_buf;
 
   HTTPCommand command;
   HTTPHeader hdrs[HTTP_MAX_HDRS];
@@ -45,6 +45,9 @@ int main(int argc, char *argv[]) {
   recv_buf = (char *)malloc(HTTP_MAX_RECV + 1);
   chk_alloc_err(recv_buf, "malloc", __func__, __LINE__ - 1);
 
+  send_buf = (char *)malloc(HTTP_MAX_SEND + 1);
+  chk_alloc_err(send_buf, "malloc", __func__, __LINE__ - 1);
+
   alloc_hdr(hdrs, HTTP_MAX_HDR_SZ, HTTP_MAX_HDRS);
 
   cliaddr_len = sizeof(cliaddr);
@@ -65,11 +68,14 @@ int main(int argc, char *argv[]) {
     skip = parse_headers(recv_buf, hdrs, &n_hdrs);
     print_headers(hdrs, n_hdrs);
 
+    https_send(connfd, send_buf);
+
     close(connfd);
   }
 
   free_hdr(hdrs, HTTP_MAX_HDRS);
   free(recv_buf);
+  free(send_buf);
 
   return EXIT_SUCCESS;
 }
