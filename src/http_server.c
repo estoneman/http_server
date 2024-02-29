@@ -1,4 +1,4 @@
-#include "../include/http_server.h"
+#include "../include/http_util.h"
 
 #define PORT_LEN 6
 
@@ -22,11 +22,6 @@ int main(int argc, char *argv[]) {
   socklen_t cliaddr_len;
   int listenfd, connfd;
   char port[PORT_LEN], ipstr[INET6_ADDRSTRLEN];
-  char *recv_buf, *send_buf;
-
-  HTTPCommand command;
-  HTTPHeader hdrs[HTTP_MAX_HDRS];
-  size_t n_hdrs, skip;
 
   strcpy(port, argv[1]);
   listenfd = fill_socket_info(&srv_entries, &srv_entry, port);
@@ -42,14 +37,6 @@ int main(int argc, char *argv[]) {
 
   freeaddrinfo(srv_entries);
 
-  recv_buf = (char *)malloc(HTTP_MAX_RECV + 1);
-  chk_alloc_err(recv_buf, "malloc", __func__, __LINE__ - 1);
-
-  send_buf = (char *)malloc(HTTP_MAX_SEND + 1);
-  chk_alloc_err(send_buf, "malloc", __func__, __LINE__ - 1);
-
-  alloc_hdr(hdrs, HTTP_MAX_HDR_SZ, HTTP_MAX_HDRS);
-
   cliaddr_len = sizeof(cliaddr);
   while (1) {
     if ((connfd = accept(listenfd, (struct sockaddr *)&cliaddr, &cliaddr_len)) <
@@ -58,24 +45,12 @@ int main(int argc, char *argv[]) {
       exit(EXIT_FAILURE);
     }
 
-    https_recv(connfd, recv_buf);
+    http_recv(connfd);
 
-    memset(&command, 0, sizeof(command));
-    skip = parse_command(recv_buf, &command);
-    print_command(command);
-
-    recv_buf += skip;
-    skip = parse_headers(recv_buf, hdrs, &n_hdrs);
-    print_headers(hdrs, n_hdrs);
-
-    https_send(connfd, send_buf);
+    http_send(connfd);
 
     close(connfd);
   }
-
-  free_hdr(hdrs, HTTP_MAX_HDRS);
-  free(recv_buf);
-  free(send_buf);
 
   return EXIT_SUCCESS;
 }
