@@ -7,15 +7,14 @@ SRC_DIR:=src
 SRC:=$(wildcard $(SRC_DIR)/*.c)
 OUT_DIR:=out
 
+DEFAULT_TARGET:=http_server
 VALID_TARGETS:=build clean help
 
-EXECUTABLES:=$(SRC:$(SRC_DIR)/%.c=%)
+all: $(DEFAULT_TARGET)
 
-all: $(EXECUTABLES)
-
-$(EXECUTABLES): % : $(SRC_DIR)/%.c
+$(DEFAULT_TARGET): % : $(SRC_DIR)/%.c
 	@mkdir -p $(OUT_DIR)
-	$(CC) $(CFLAGS) -o $(OUT_DIR)/$@ $<
+	$(CC) $(CFLAGS) -o $(OUT_DIR)/$@ $(SRC)
 
 .PHONY:
 clean:
