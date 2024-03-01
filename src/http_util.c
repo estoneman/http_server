@@ -2,14 +2,14 @@
 
 /*
  * these change:
- *   1. Status Line
- *   2. Content-Type
- *   3. Content-Length
- *   4. Date: Tue, 15 Feb 2024 08:00:00 GMT (just an example)
+ *   1. Status Line (e.g., HTTP/1.1 200 OK)
+ *   2. Content-Type (e.g., application/json)
+ *   3. Content-Length (e.g., 1234)
+ *   4. Date (e.g., Tue, 15 Feb 2024 08:00:00 GMT)
  * these don't:
  *   1. Server: Apache/2.4.41 (Unix) (just an example)
- *   2. Cache-Control: max-age=3600 instructs clients to cache the response for 1
- *                  hour
+ *   2. Cache-Control: max-age=3600 instructs clients to cache the response for
+ *      1 hour
  */
 
 const char *server_version = "Server: NetSysHTTPServer/0.1";
@@ -28,19 +28,44 @@ void alloc_hdr(HTTPHeader *hdrs, size_t size, size_t nmemb) {
     hdrs[i].key = alloc_buf(size);
     hdrs[i].value = alloc_buf(size);
   }
+
+  fprintf(stderr, "allocated %zu headers\n", nmemb);
 }
 
-char *http_build_response(size_t *response_sz, const char *fpath) {
+char *http_build_response(size_t response_code, size_t *response_sz) {
   char *send_buf, *file_contents;
   size_t nb_read, hdr_sz;
+  const char *fpath;
+  const char *status_line;
+
+  switch (response_code) {
+    case HTTP_BAD_REQUEST:
+      fpath = "400.html";
+      status_line = "HTTP/1.1 400 Bad Request";
+      break;
+    case HTTP_METHOD_NOT_ALLOWED:
+      fpath = "405.html";
+      status_line = "HTTP/1.1 405 Method Not Allowed";
+      break;
+    case HTTP_VERSION_NOT_SUPPORTED:
+      fpath = "505.html";
+      status_line = "HTTP/1.1 505 HTTP Version Not Supported";
+      break;
+    default:  // HTTP_OK (for now)
+      fpath = "LICENSE";
+      status_line = "HTTP/1.1 200 OK";
+      break;
+  }
 
   hdr_sz = HTTP_MAX_HDR_SZ * 4;
   char content_length_fmt[] = "Content-Length: %zu";
   char content_length[64];
-  char status_line[] = "HTTP/1.1 200 OK";
   char content_type[] = "Content-Type: text/plain";
   char headers[hdr_sz];
 
+  // two errors can happen here
+  //   1. 404 file does not exist
+  //   2. 403 server does not have permission to read the file
   if ((file_contents = read_file(fpath, &nb_read)) == 0) {
     return NULL;
   }
@@ -169,18 +194,19 @@ size_t http_readline(char *recv_buf, char *line_buf) {
   return needle_idx + 2;  // move past CRLF
 }
 
-ssize_t http_recv(int sockfd) {
+size_t http_recv(int sockfd) {
   HTTPCommand command;
   HTTPHeader hdrs[HTTP_MAX_HDRS];
   char *recv_buf;
   ssize_t nb_recv;
-  size_t skip, n_hdrs;
+  size_t n_hdrs;
+  ssize_t skip;
 
   recv_buf = alloc_buf(HTTP_MAX_RECV);
 
   if ((nb_recv = recv(sockfd, recv_buf, HTTP_MAX_RECV, 0)) < 0) {
     perror("recv");
-    return -1;
+    exit(EXIT_FAILURE);
   }
   recv_buf[nb_recv] = '\0';
 
@@ -188,24 +214,37 @@ ssize_t http_recv(int sockfd) {
 
   memset(&command, 0, sizeof(command));
   skip = parse_command(recv_buf, &command);
-  print_command(command);
+  if (skip == -1) {  // parser failed, malformed request
+    return 400;
+  }
+
+  if (strncmp(command.method, "GET", strlen(command.method)) != 0) {
+    return 405;
+  } else if (strncmp(command.version, "HTTP/1.1", HTTP_MAX_VERSION_LENGTH) != 0 
+             &&
+             strncmp(command.version, "HTTP/1.0", HTTP_MAX_VERSION_LENGTH)
+             != 0) {
+    return 505;
+  }
 
   skip = parse_headers(recv_buf + skip, hdrs, &n_hdrs);
+  if (skip == -1) { // parser failed, request is malformed
+    return 400;
+  }
   print_headers(hdrs, n_hdrs);
 
   free_hdr(hdrs, HTTP_MAX_HDRS);
   free(recv_buf);
 
-  return nb_recv;
+  return 200;
 }
 
-ssize_t http_send(int sockfd) {
+ssize_t http_send(int sockfd, size_t response_code) {
   char *send_buf;
   ssize_t nb_sent;
   size_t send_buf_sz;
-  const char fpath[] = "src/http_server.c";
 
-  if ((send_buf = http_build_response(&send_buf_sz, fpath)) == NULL) {
+  if ((send_buf = http_build_response(response_code, &send_buf_sz)) == NULL) {
     return -1;
   }
 
@@ -214,7 +253,6 @@ ssize_t http_send(int sockfd) {
     perror("send");
     return -1;
   }
-  fwrite(send_buf, 1, send_buf_sz, stdout);
 
   free(send_buf);
 
@@ -226,34 +264,61 @@ int is_valid_port(const char *arg) {
   return (port >= 1024 && port <= 65535);
 }
 
-size_t parse_command(char *recv_buf, HTTPCommand *command) {
+ssize_t parse_command(char *recv_buf, HTTPCommand *command) {
   char line_buf[HTTP_MAX_METHOD_LENGTH + HTTP_MAX_URI_LENGTH +
                 HTTP_MAX_VERSION_LENGTH + 3];  // 1 for each string's null term.
-  size_t offset, i;
+  size_t offset;
+  ssize_t i, j;
 
   offset = http_readline(recv_buf, line_buf);
 
   i = 0;
-  i += read_until(line_buf, command->method, ' ');
-  i += read_until(line_buf + i, command->uri, ' ');
-  i += read_until(line_buf + i, command->version, ' ');
+  j = read_until(line_buf, command->method, sizeof(command->method), ' ');
+  if (j == -1)
+    return -1;
+  i += j;
+
+  j = read_until(line_buf + i, command->uri, sizeof(command->uri), ' ');
+  if (j == -1)
+    return -1;
+  i += j;
+
+  j = read_until(line_buf + i, command->version, sizeof(command->version),
+                 '\0');
+  if (j == -1)
+    return -1;
+  i += j;
 
   return offset;
 }
 
-size_t parse_headers(char *buf, HTTPHeader *hdrs, size_t *n_hdrs) {
-  char line[HTTP_MAXLINE + 1];
-  size_t global_offset, local_offset, i;
+ssize_t parse_headers(char *read_buf, HTTPHeader *hdrs, size_t *n_hdrs) {
+  char line_buf[HTTP_MAXLINE + 1];
+  size_t global_offset, local_offset;
+  ssize_t i, j;
 
   global_offset = 0;
   local_offset = 0;
   *n_hdrs = 0;
-  while ((local_offset = http_readline(buf, line)) != 0) {
+  while ((local_offset = http_readline(read_buf, line_buf)) != 0) {
     i = 0;
-    i += read_until(line + i, hdrs[*n_hdrs].key, ':');
-    i += read_until(line + i, hdrs[*n_hdrs].value, '\0');
-    buf += local_offset;
+    j = read_until(line_buf + i, hdrs[*n_hdrs].key, HTTP_MAX_HDR_SZ, ':');
+    if (j == -1)
+      return -1;
+
+    i += j;
+
+    j = read_until(line_buf + i, hdrs[*n_hdrs].value, HTTP_MAX_HDR_SZ, '\0');
+    if (j == -1)
+      return -1;
+
+    i += j;
+
+    read_buf += local_offset;
     global_offset += local_offset;
+    if (*n_hdrs == HTTP_MAX_HDRS - 1) {
+      return -1;
+    }
     (*n_hdrs)++;
   }
 
@@ -291,22 +356,30 @@ char *read_file(const char *fpath, size_t *nb_read) {
   return out_buf;
 }
 
-size_t read_until(char *buf, char *out, char end) {
-  size_t len_out, i;
+ssize_t read_until(char *read_buf, char *out_buf, size_t len_out_buf,
+                   char end) {
+  size_t len_read_buf, i;
 
-  while (isspace(*buf)) {
-    buf += 1;
+  // move past space between ':' and header value
+  while (isspace(*read_buf)) {
+    read_buf += 1;
   }
 
-  i = 0;
-  len_out = strlen(buf);
-  while (i < len_out && buf[i] != end) {
-    out[i] = buf[i];
-    i++;
+  len_read_buf = strlen(read_buf);
+  // up to the length of the input buffer, read as many characters are allowed
+  // in `out_buf`
+  for (i = 0; i < len_read_buf && i < len_out_buf && read_buf[i] != end; ++i) {
+    out_buf[i] = read_buf[i];
   }
-  out[i] = '\0';
 
-  return i + 1;
+  // if nothing found, bad request
+  if (read_buf[i] != end) {
+    return -1;
+  }
+
+  out_buf[i] = '\0';
+
+  return (ssize_t)i + 1; // move pointer to next field of http status line
 }
 
 int validate_port(const char *user_port) {
