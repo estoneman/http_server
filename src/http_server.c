@@ -22,6 +22,7 @@ int main(int argc, char *argv[]) {
   socklen_t cliaddr_len;
   int listenfd, connfd;
   char port[PORT_LEN], ipstr[INET6_ADDRSTRLEN];
+  size_t response_code;
 
   strcpy(port, argv[1]);
   listenfd = fill_socket_info(&srv_entries, &srv_entry, port);
@@ -45,9 +46,12 @@ int main(int argc, char *argv[]) {
       exit(EXIT_FAILURE);
     }
 
-    http_recv(connfd);
+    // command = http_recv(connfd, &headers);
+    // http_send(connfd, command, headers)
+    response_code = http_recv(connfd);
+    printf("partial response code: %zu\n", response_code);
 
-    http_send(connfd);
+    http_send(connfd, response_code);
 
     close(connfd);
   }
