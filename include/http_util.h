@@ -28,6 +28,8 @@
 #define HTTP_MAX_METHOD_LENGTH 32
 #define HTTP_MAX_URI_LENGTH 1024
 #define HTTP_MAX_VERSION_LENGTH 9
+#define HTTP_MAX_FILE_TYPE_LENGTH 128
+#define HTTP_MAX_FILE_NAME_LENGTH 255
 
 #define HTTP_BAD_REQUEST 400
 #define HTTP_METHOD_NOT_ALLOWED 405
@@ -52,30 +54,31 @@ typedef struct {
   char *value;
 } HTTPHeader;
 
-char *alloc_buf(size_t size);
+char *alloc_buf(size_t);
 void alloc_hdr(HTTPHeader *, size_t, size_t);
-char *http_build_response(size_t, size_t *);
+char *http_build_response(size_t, size_t *, char *);
 void chk_alloc_err(void *, const char *, const char *, int);
 int fill_socket_info(struct addrinfo **, struct addrinfo **,
                             const char *);
-size_t find_crlf(char *buf);
+size_t find_crlf(char *);
+char *file_type(const char *);
 void free_hdr(HTTPHeader *, size_t);
+void *handle_request(void *);
 void *get_inetaddr(struct sockaddr *);
 void get_ipstr(char *, struct addrinfo *);
-size_t http_readline(char *recv_buf, char *line_buf);
-size_t http_recv(int);
-ssize_t http_send(int, size_t);
+size_t http_readline(char *, char *);
+size_t http_recv(int, HTTPCommand *, HTTPHeader *);
+ssize_t http_send(int, size_t, char *);
 int is_valid_port(const char *);
 ssize_t parse_command(char *, HTTPCommand *);
 ssize_t parse_headers(char *, HTTPHeader *, size_t *);
 char *read_file(const char *, size_t *);
-ssize_t read_until(char *buf, char *out, size_t len_out, char end);
+ssize_t read_until(char *, char *, size_t, char);
 int validate_port(const char *);
 
 // debug
-void print_header(HTTPHeader);
 void print_headers(HTTPHeader *, size_t);
 void print_command(HTTPCommand);
-void todo(const char *func);
+void todo(const char *);
 
 #endif  // HTTP_SERVER_H

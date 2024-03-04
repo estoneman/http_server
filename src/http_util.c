@@ -28,49 +28,58 @@ void alloc_hdr(HTTPHeader *hdrs, size_t size, size_t nmemb) {
     hdrs[i].key = alloc_buf(size);
     hdrs[i].value = alloc_buf(size);
   }
-
-  fprintf(stderr, "allocated %zu headers\n", nmemb);
 }
 
-char *http_build_response(size_t response_code, size_t *response_sz) {
-  char *send_buf, *file_contents;
+char *http_build_response(size_t response_code, size_t *response_sz, char *uri) {
+  char *send_buf, *file_contents, *ftype;
+  char mime_type[HTTP_MAX_FILE_TYPE_LENGTH + 1];
   size_t nb_read, hdr_sz;
-  const char *fpath;
+  char response_uri[HTTP_MAX_FILE_NAME_LENGTH + 1];
   const char *status_line;
 
   switch (response_code) {
     case HTTP_BAD_REQUEST:
-      fpath = "400.html";
+      strcpy(response_uri, "400.html");
       status_line = "HTTP/1.1 400 Bad Request";
       break;
     case HTTP_METHOD_NOT_ALLOWED:
-      fpath = "405.html";
+      strcpy(response_uri, "405.html");
       status_line = "HTTP/1.1 405 Method Not Allowed";
       break;
     case HTTP_VERSION_NOT_SUPPORTED:
-      fpath = "505.html";
+      strcpy(response_uri, "505.html");
       status_line = "HTTP/1.1 505 HTTP Version Not Supported";
       break;
     default:  // HTTP_OK (for now)
-      fpath = "LICENSE";
+      strcpy(response_uri, uri + 1);
       status_line = "HTTP/1.1 200 OK";
       break;
   }
 
+  if ((ftype = file_type(response_uri)) != NULL) {
+    strcpy(mime_type, strchr(ftype, ' '));
+  } else {
+    strcpy(mime_type, "application/octet-stream");
+  }
+// ssize_t read_until(char *read_buf, char *out_buf, size_t len_out_buf,
+//                    char end) {
+
   hdr_sz = HTTP_MAX_HDR_SZ * 4;
   char content_length_fmt[] = "Content-Length: %zu";
   char content_length[64];
-  char content_type[] = "Content-Type: text/plain";
+  char content_type_fmt[] = "Content-Type:%s";
+  char content_type[128];
   char headers[hdr_sz];
 
   // two errors can happen here
   //   1. 404 file does not exist
   //   2. 403 server does not have permission to read the file
-  if ((file_contents = read_file(fpath, &nb_read)) == 0) {
+  if ((file_contents = read_file(response_uri, &nb_read)) == 0) {
     return NULL;
   }
 
   snprintf(content_length, sizeof(content_length), content_length_fmt, nb_read);
+  snprintf(content_type, sizeof(content_type), content_type_fmt, mime_type);
   snprintf(headers, sizeof(headers), "%s\r\n%s\r\n%s\r\n\r\n",
            status_line, content_length, content_type);
 
@@ -80,6 +89,8 @@ char *http_build_response(size_t response_code, size_t *response_sz) {
   strncpy(send_buf, headers, strlen(headers));
   send_buf[strlen(headers)] = '\0';
   strncat(send_buf, file_contents, nb_read);
+
+  free(ftype);
 
   return send_buf;
 }
@@ -162,11 +173,57 @@ size_t find_crlf(char *buf) {
   return needle_idx;
 }
 
+char *file_type(const char *fpath) {
+  char *proc_out;
+  char cmd[HTTP_MAX_FILE_NAME_LENGTH + 1];
+
+  snprintf(cmd, HTTP_MAX_FILE_NAME_LENGTH, "file --mime-type %s", fpath);
+  FILE *proc_p = popen(cmd, "r");
+  if (proc_p == NULL) {
+    fprintf(stderr, "could not open process: %s", strerror(errno));
+    return NULL;
+  }
+
+  proc_out = alloc_buf(HTTP_MAX_FILE_TYPE_LENGTH + 1);
+
+  if (fgets(proc_out, HTTP_MAX_FILE_TYPE_LENGTH, proc_p) == NULL) {
+    fprintf(stderr, "could not read from process stdout\n");
+    return NULL;
+  }
+
+  proc_out[strlen(proc_out) - 1] = '\0';
+
+  pclose(proc_p);
+
+  return proc_out;
+}
+
 void free_hdr(HTTPHeader *hdrs, size_t nmemb) {
   for (size_t i = 0; i < nmemb; ++i) {
     free(hdrs[i].key);
     free(hdrs[i].value);
   }
+}
+
+void *handle_request(void *connfdp) {
+  HTTPCommand command;
+  HTTPHeader hdrs[HTTP_MAX_HDRS];
+
+  int connfd = *(int*)connfdp;
+  size_t response_code;
+
+  alloc_hdr(hdrs, HTTP_MAX_HDR_SZ, HTTP_MAX_HDRS);
+  memset(&command, 0, sizeof(command));
+
+  response_code = http_recv(connfd, &command, hdrs);
+
+  http_send(connfd, response_code, command.uri);
+
+  close(connfd);
+
+  free_hdr(hdrs, HTTP_MAX_HDRS);
+
+  return NULL;
 }
 
 void *get_inetaddr(struct sockaddr *sa) {
@@ -194,13 +251,10 @@ size_t http_readline(char *recv_buf, char *line_buf) {
   return needle_idx + 2;  // move past CRLF
 }
 
-size_t http_recv(int sockfd) {
-  HTTPCommand command;
-  HTTPHeader hdrs[HTTP_MAX_HDRS];
-  char *recv_buf;
-  ssize_t nb_recv;
+size_t http_recv(int sockfd, HTTPCommand *command, HTTPHeader *hdrs) {
   size_t n_hdrs;
-  ssize_t skip;
+  char *recv_buf;
+  ssize_t nb_recv, skip;
 
   recv_buf = alloc_buf(HTTP_MAX_RECV);
 
@@ -210,41 +264,37 @@ size_t http_recv(int sockfd) {
   }
   recv_buf[nb_recv] = '\0';
 
-  alloc_hdr(hdrs, HTTP_MAX_HDR_SZ, HTTP_MAX_HDRS);
-
-  memset(&command, 0, sizeof(command));
-  skip = parse_command(recv_buf, &command);
+  skip = parse_command(recv_buf, command);
   if (skip == -1) {  // parser failed, malformed request
     return 400;
   }
 
-  if (strncmp(command.method, "GET", strlen(command.method)) != 0) {
+  if (strncmp(command->method, "GET", strlen(command->method)) != 0) {
     return 405;
-  } else if (strncmp(command.version, "HTTP/1.1", HTTP_MAX_VERSION_LENGTH) != 0 
+  } else if (strncmp(command->version, "HTTP/1.1", HTTP_MAX_VERSION_LENGTH) != 0 
              &&
-             strncmp(command.version, "HTTP/1.0", HTTP_MAX_VERSION_LENGTH)
+             strncmp(command->version, "HTTP/1.0", HTTP_MAX_VERSION_LENGTH)
              != 0) {
     return 505;
   }
 
   skip = parse_headers(recv_buf + skip, hdrs, &n_hdrs);
-  if (skip == -1) { // parser failed, request is malformed
+  if (skip == -1) {   // parser failed, malformed request
     return 400;
   }
-  print_headers(hdrs, n_hdrs);
 
-  free_hdr(hdrs, HTTP_MAX_HDRS);
   free(recv_buf);
 
   return 200;
 }
 
-ssize_t http_send(int sockfd, size_t response_code) {
+ssize_t http_send(int sockfd, size_t response_code, char *uri) {
   char *send_buf;
   ssize_t nb_sent;
   size_t send_buf_sz;
 
-  if ((send_buf = http_build_response(response_code, &send_buf_sz)) == NULL) {
+  if ((send_buf = http_build_response(response_code, &send_buf_sz, uri))
+      == NULL) {
     return -1;
   }
 
@@ -330,14 +380,15 @@ char *read_file(const char *fpath, size_t *nb_read) {
   FILE *fp;
   struct stat st;
 
+  fprintf(stderr, "[INFO] attempting to read %s\n", fpath);
   if (stat(fpath, &st) < 0) {
-    fprintf(stderr, "unable to stat file: %s", strerror(errno));
+    fprintf(stderr, "unable to stat file: %s\n", strerror(errno));
 
     return 0;
   }
 
   if ((fp = fopen(fpath, "r")) == NULL) {
-    fprintf(stderr, "unable to open file: %s", strerror(errno));
+    fprintf(stderr, "unable to open file: %s\n", strerror(errno));
 
     return 0;
   }
