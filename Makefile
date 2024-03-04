@@ -14,7 +14,7 @@ all: $(DEFAULT_TARGET)
 
 $(DEFAULT_TARGET): % : $(SRC_DIR)/%.c
 	@mkdir -p $(OUT_DIR)
-	$(CC) $(CFLAGS) -o $(OUT_DIR)/$@ $(SRC)
+	$(CC) $(LDFLAGS) $(CFLAGS) -o $(OUT_DIR)/$@ $(SRC)
 
 .PHONY:
 clean:
