@@ -2,3 +2,4 @@ inject_headers
 out/
 sandbox/
 TODO.md
+examples/
