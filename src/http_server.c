@@ -1,3 +1,5 @@
+#include <pthread.h>
+
 #include "../include/http_util.h"
 
 #define PORT_LEN 6
@@ -20,9 +22,9 @@ int main(int argc, char *argv[]) {
   struct addrinfo *srv_entries, *srv_entry;
   struct sockaddr_in cliaddr;
   socklen_t cliaddr_len;
-  int listenfd, connfd;
+  int listenfd, *connfd;
   char port[PORT_LEN], ipstr[INET6_ADDRSTRLEN];
-  size_t response_code;
+  pthread_t conn_thread;
 
   strcpy(port, argv[1]);
   listenfd = fill_socket_info(&srv_entries, &srv_entry, port);
@@ -40,20 +42,20 @@ int main(int argc, char *argv[]) {
 
   cliaddr_len = sizeof(cliaddr);
   while (1) {
-    if ((connfd = accept(listenfd, (struct sockaddr *)&cliaddr, &cliaddr_len)) <
-        0) {
+    connfd = malloc(sizeof(int));
+    chk_alloc_err(connfd, "malloc", __func__, __LINE__ -1 );
+
+    if ((*connfd = accept(listenfd, (struct sockaddr *)&cliaddr, &cliaddr_len))
+        < 0) {
       perror("accept");
+      continue;
+    }
+
+    if (pthread_create(&conn_thread, NULL, handle_request, connfd) != 0) {
+      perror("pthread_create");
       exit(EXIT_FAILURE);
     }
 
-    // command = http_recv(connfd, &headers);
-    // http_send(connfd, command, headers)
-    response_code = http_recv(connfd);
-    printf("partial response code: %zu\n", response_code);
-
-    http_send(connfd, response_code);
-
-    close(connfd);
   }
 
   return EXIT_SUCCESS;
