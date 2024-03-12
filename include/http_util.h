@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <openssl/sha.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,6 +45,8 @@
 
 #define DOCUMENT_ROOT "www"
 #define ERROR_DOCUMENT_ROOT "err"
+#define INDEX_HTM "index.htm"
+#define INDEX_HTML "index.html"
 
 #define MIN_PORT 1024
 #define MAX_PORT 65535
@@ -67,6 +70,7 @@ typedef struct {
 char *alloc_buf(size_t);
 void alloc_hdr(HTTPHeader *, size_t, size_t);
 void chk_alloc_err(void *, const char *, const char *, int);
+size_t fexists(const char *);
 int fill_socket_info(struct addrinfo **, struct addrinfo **, const char *);
 size_t find_crlf(char *);
 char *file_cmd(const char *);
@@ -74,12 +78,13 @@ void free_hdr(HTTPHeader *, size_t);
 void *handle_request(void *);
 char *get_ext(const char *);
 char *get_file_type(const char *, size_t *);
+char *get_http_header(char *, HTTPHeader *, size_t);
 void *get_inetaddr(struct sockaddr *);
 void get_ipstr(char *, struct addrinfo *);
 size_t http_access(const char *);
-char *http_build_response(size_t, HTTPCommand, HTTPHeader *, size_t *);
+char *http_build_response(size_t, HTTPCommand, char *, size_t *);
 size_t http_readline(char *, char *);
-size_t http_recv(int, HTTPCommand *, HTTPHeader *);
+size_t http_recv(int, HTTPCommand *, HTTPHeader *, size_t *);
 ssize_t http_send(int, char *, size_t);
 const char *http_status(size_t);
 void insert_beginning(char *, const char *, const char *);
@@ -88,8 +93,11 @@ int is_valid_port(const char *);
 char *mime_type(const char *);
 ssize_t parse_command(char *, HTTPCommand *);
 ssize_t parse_headers(char *, HTTPHeader *, size_t *);
+size_t freadable(const char *);
 char *read_file(char *, size_t *);
 ssize_t read_until(char *, char *, size_t, char);
+size_t strnins(char *, const char *, size_t n);
+size_t strrnins(char *, const char *, size_t n);
 int validate_port(const char *);
 
 // debug
