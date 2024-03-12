@@ -109,22 +109,37 @@ size_t find_crlf(char *buf) {
 }
 
 size_t http_access(const char *fpath) {
-  if (access(fpath, F_OK | R_OK) < 0) {
-    if (errno == EACCES) {  // 403
-      return HTTP_FORBIDDEN;
-    } else if (errno == ENOENT) {  // 404
-      return HTTP_NOT_FOUND;
-    }
+  size_t exists, readable;
+
+  exists = fexists(fpath);
+  readable = freadable(fpath);
+
+  if (exists != HTTP_OK) {
+    return HTTP_NOT_FOUND;
+  }
+
+  return readable == HTTP_OK ? HTTP_OK : HTTP_FORBIDDEN;
+}
+
+size_t fexists(const char *fpath) {
+  if (access(fpath, F_OK) < 0) {
+    return HTTP_NOT_FOUND;
+  }
+
+  return HTTP_OK;
+}
+
+size_t freadable(const char *fpath) {
+  if (access(fpath, R_OK) < 0) {
+    return HTTP_FORBIDDEN;
   }
 
   return HTTP_OK;
 }
 
 // return a full http response
-char *http_build_response(size_t rc, HTTPCommand command, HTTPHeader *http_hdrs,
+char *http_build_response(size_t rc, HTTPCommand command, char *connection,
                           size_t *len_send_buf) {
-  (void)http_hdrs;  // TODO: use me for keep-alive
-
   char *send_buf, *file_contents, *file_type;
   const char *status_msg;
   size_t nb_read, free_buf_flag;
@@ -132,7 +147,6 @@ char *http_build_response(size_t rc, HTTPCommand command, HTTPHeader *http_hdrs,
   file_contents = read_file(command.uri, &nb_read);
   char content_type[HTTP_MAX_FILE_TYPE_LENGTH + 1];
   char headers[HTTP_MAX_HDR_SZ * 3 + 1];
-
 
   status_msg = http_status(rc);
   free_buf_flag = 0;
@@ -142,8 +156,9 @@ char *http_build_response(size_t rc, HTTPCommand command, HTTPHeader *http_hdrs,
   snprintf(headers, sizeof(headers),
            "%s %zu %s\r\n"
            "Content-Length: %zu\r\n"
-           "Content-Type: %s\r\n\r\n",
-           command.version, rc, status_msg, nb_read, content_type);
+           "Content-Type: %s\r\n"
+           "Connection: %s\r\n\r\n",
+           command.version, rc, status_msg, nb_read, content_type, connection);
 
   *len_send_buf = nb_read + strlen(headers);
   send_buf = alloc_buf(*len_send_buf);
@@ -162,22 +177,10 @@ char *get_ext(const char *fpath) {
 
   strcpy(ext, strrchr(fpath, '.'));
 
-  /*
-   *
-   * .html text/html
-   * .txt text/plain
-   * .png image/png
-   * .gif image/gif
-   * .jpg image/jpg
-   * .ico image/x-icon
-   * .css text/css
-   * .js application/javascript
-   */
-
   if (strncmp(ext, ".html", strlen(".html")) == 0) {
     return "text/html";
   } else if (strncmp(ext, ".txt", strlen(".txt")) == 0) {
-    return "text/plain"; 
+    return "text/plain";
   } else if (strncmp(ext, ".png", strlen(".png")) == 0) {
     return "image/png";
   } else if (strncmp(ext, ".gif", strlen(".gif")) == 0) {
@@ -208,6 +211,16 @@ char *get_file_type(const char *fpath, size_t *free_buf_flag) {
   return "application/octet-stream";
 }
 
+char *get_http_header(char *key, HTTPHeader *hdrs, size_t n_hdrs) {
+  for (size_t i = 0; i < n_hdrs; ++i) {
+    if (strncmp(key, hdrs[i].key, strlen(key)) == 0) {
+      return hdrs[i].value;
+    }
+  }
+
+  return NULL;
+}
+
 char *file_cmd(const char *fpath) {
   char *proc_out;
   char cmd[HTTP_MAX_FILE_NAME_LENGTH + 1];
@@ -222,7 +235,8 @@ char *file_cmd(const char *fpath) {
   proc_out = alloc_buf(HTTP_MAX_FILE_TYPE_LENGTH);
 
   // skip until mime type is read
-  while (fgetc(proc_p) != ' ') {  }
+  while (fgetc(proc_p) != ' ') {
+  }
 
   if (fgets(proc_out, HTTP_MAX_FILE_TYPE_LENGTH, proc_p) == NULL) {
     fprintf(stderr, "could not read from process stdout\n");
@@ -258,65 +272,64 @@ void get_ipstr(char *ipstr, struct addrinfo *srv_entry) {
 void *handle_request(void *connfdp) {
   HTTPCommand command;
   HTTPHeader hdrs[HTTP_MAX_HDRS];
-  char *send_buf;
-  char err_uri[sizeof(ERROR_DOCUMENT_ROOT) + HTTP_ERR_FILE_NAME_LENGTH + 1];
-  char served_uri[sizeof(DOCUMENT_ROOT) + sizeof(command.uri)];
+  char *send_buf, *connection;
+  struct stat st;
 
   int connfd = *(int *)connfdp;
-  size_t partial_response_code, len_response;
+  size_t partial_response_code, len_response, n_hdrs, keep_alive;
 
   alloc_hdr(hdrs, HTTP_MAX_HDR_SZ, HTTP_MAX_HDRS);
   memset(&command, 0, sizeof(command));
 
-  partial_response_code = http_recv(connfd, &command, hdrs);
-  if (partial_response_code != HTTP_OK) {  // either 400, 405, or 505
-    snprintf(err_uri, sizeof(err_uri), "%s/%zu.html", ERROR_DOCUMENT_ROOT,
-             partial_response_code);
-    strncpy(command.uri, err_uri, strlen(err_uri));
-    command.uri[strlen(err_uri)] = '\0';
-    send_buf = http_build_response(partial_response_code, command, NULL,
-                                   &len_response);
-  } else {
-    // attempt to access command.uri w/ appended document root
-    snprintf(served_uri, sizeof(served_uri), "%s/%s", DOCUMENT_ROOT,
-             command.uri + 1);
-    strncpy(command.uri, served_uri, strlen(served_uri));
+  keep_alive = 1;
+  do {
+    partial_response_code = http_recv(connfd, &command, hdrs, &n_hdrs);
 
-    // TODO: append uri w/ document root immediately upon entering this function
-    struct stat st;
+    connection = get_http_header("Connection", hdrs, n_hdrs);
+    if (connection == NULL ||
+        strncmp(connection, "keep-alive", strlen("keep-alive")) != 0) {
+      keep_alive = 0;
+      connection = "close";
+    }
+
     char index_htm[strlen(command.uri) + HTTP_INDEX_FILE_LENGTH + 1];
     char index_html[strlen(command.uri) + HTTP_INDEX_FILE_LENGTH + 1];
 
-    stat(command.uri, &st);
-    if (S_ISDIR(st.st_mode)) {
-      fprintf(stderr, "[INFO] requested uri is a directory\n");
-      snprintf(index_htm, sizeof(index_htm), "%s%s", command.uri, "index.htm");
-      snprintf(index_html, sizeof(index_html), "%s%s", command.uri, "index.html");
+    if (partial_response_code != HTTP_OK) {  // either 400, 405, or 505
+      snprintf(command.uri, sizeof(command.uri), "/%zu.html",
+               partial_response_code);
+      strnins(command.uri, ERROR_DOCUMENT_ROOT, strlen(ERROR_DOCUMENT_ROOT));
+      connection = "close";
+    } else {
+      strnins(command.uri, DOCUMENT_ROOT, strlen(DOCUMENT_ROOT));
+      stat(command.uri, &st);
+      if (S_ISDIR(st.st_mode)) {
+        snprintf(index_htm, sizeof(index_htm), "%s%s", command.uri, INDEX_HTM);
+        snprintf(index_html, sizeof(index_html), "%s%s", command.uri, INDEX_HTML);
 
-      if (http_access(index_htm) == HTTP_OK) {
-        strncpy(command.uri, index_htm, sizeof(command.uri));
-      } else if (http_access(index_html) == HTTP_OK) {
-        strncpy(command.uri, index_html, sizeof(command.uri));
+        if (fexists(index_htm) == HTTP_OK) {
+          strncpy(command.uri, index_htm, sizeof(command.uri));
+        } else if (fexists(index_html) == HTTP_OK) {
+          strncpy(command.uri, index_html, sizeof(command.uri));
+        }
+      }
+
+      partial_response_code = http_access(command.uri);
+      if (partial_response_code != HTTP_OK) {  // either 403 or 404
+        snprintf(command.uri, sizeof(command.uri), "%s/%zu.html",
+                 ERROR_DOCUMENT_ROOT, partial_response_code);
+        connection = "close";
       }
     }
 
-    partial_response_code = http_access(served_uri);
-    if (partial_response_code != HTTP_OK) {  // either 403 or 404
-      snprintf(err_uri, sizeof(err_uri), "%s/%zu.html", ERROR_DOCUMENT_ROOT,
-               partial_response_code);
-      strncpy(command.uri, err_uri, strlen(err_uri));
-      command.uri[strlen(err_uri)] = '\0';
-      send_buf = http_build_response(partial_response_code, command, NULL,
-                                     &len_response);
-    } else {
-      send_buf = http_build_response(HTTP_OK, command, hdrs, &len_response);
-    }
-  }
+    send_buf = http_build_response(partial_response_code, command, connection,
+                                   &len_response);
 
-  http_send(connfd, send_buf, len_response);
+    http_send(connfd, send_buf, len_response);
 
-  free_hdr(hdrs, HTTP_MAX_HDRS);
-  free(send_buf);
+    free_hdr(hdrs, HTTP_MAX_HDRS);
+    free(send_buf);
+  } while (keep_alive);
 
   close(connfd);
 
@@ -336,8 +349,8 @@ size_t http_readline(char *recv_buf, char *line_buf) {
   return needle_idx + 2;  // move past CRLF
 }
 
-size_t http_recv(int sockfd, HTTPCommand *command, HTTPHeader *hdrs) {
-  size_t n_hdrs;
+size_t http_recv(int sockfd, HTTPCommand *command, HTTPHeader *hdrs,
+                 size_t *n_hdrs) {
   char *recv_buf;
   ssize_t nb_recv, skip;
 
@@ -351,19 +364,23 @@ size_t http_recv(int sockfd, HTTPCommand *command, HTTPHeader *hdrs) {
 
   skip = parse_command(recv_buf, command);
   if (skip == -1) {  // parser failed, malformed request
+    *n_hdrs = 0;
     return 400;
   }
 
   if (strncmp(command->method, "GET", strlen(command->method)) != 0) {
+    *n_hdrs = 0;
     return 405;
   } else if (strncmp(command->version, "HTTP/1.1", HTTP_MAX_VERSION_LENGTH) !=
                  0 &&
              strncmp(command->version, "HTTP/1.0", HTTP_MAX_VERSION_LENGTH) !=
                  0) {
+    strcpy(command->version, "HTTP/1.1");
+    *n_hdrs = 0;
     return 505;
   }
 
-  skip = parse_headers(recv_buf + skip, hdrs, &n_hdrs);
+  skip = parse_headers(recv_buf + skip, hdrs, n_hdrs);
   if (skip == -1) {  // parser failed, malformed request
     return 400;
   }
@@ -519,6 +536,39 @@ ssize_t read_until(char *read_buf, char *out_buf, size_t len_out_buf,
   out_buf[i] = '\0';
 
   return (ssize_t)i + 1;  // move pointer to next field of http status line
+}
+
+size_t strnins(char *dst, const char *src, size_t n) {
+  size_t src_len, dst_len;
+
+  src_len = strlen(src);
+  dst_len = strlen(dst);
+
+  if (n > src_len) {
+    n = src_len;
+  }
+
+  char tmp[dst_len + n + 1];
+  strncpy(tmp, src, n);
+  strncpy(tmp + n, dst, dst_len);
+  strncpy(dst, tmp, src_len + dst_len);
+
+  return n;
+}
+
+size_t strrnins(char *dst, const char *src, size_t n) {
+  size_t src_len, dst_len;
+
+  src_len = strlen(src);
+  dst_len = strlen(dst);
+
+  if (n > src_len) {
+    n = src_len;
+  }
+
+  strncpy(dst + dst_len, src, n);
+
+  return n;
 }
 
 int validate_port(const char *user_port) {
