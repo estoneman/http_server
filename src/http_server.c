@@ -43,10 +43,10 @@ int main(int argc, char *argv[]) {
   cliaddr_len = sizeof(cliaddr);
   while (1) {
     connfd = malloc(sizeof(int));
-    chk_alloc_err(connfd, "malloc", __func__, __LINE__ -1 );
+    chk_alloc_err(connfd, "malloc", __func__, __LINE__ - 1);
 
-    if ((*connfd = accept(listenfd, (struct sockaddr *)&cliaddr, &cliaddr_len))
-        < 0) {
+    if ((*connfd =
+             accept(listenfd, (struct sockaddr *)&cliaddr, &cliaddr_len)) < 0) {
       perror("accept");
       continue;
     }
@@ -55,7 +55,6 @@ int main(int argc, char *argv[]) {
       perror("pthread_create");
       exit(EXIT_FAILURE);
     }
-
   }
 
   return EXIT_SUCCESS;
