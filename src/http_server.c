@@ -13,7 +13,7 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "[ERROR] not enough arguments supplied\n");
     usage(argv[0]);
     exit(EXIT_FAILURE);
-  } else if (!validate_port(argv[1])) {
+  } else if (!is_valid_port(argv[1])) {
     fprintf(stderr, "[ERROR] invalid port specified\n");
     usage(argv[0]);
     exit(EXIT_FAILURE);
@@ -34,9 +34,7 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  get_ipstr(ipstr, srv_entry);
-
-  fprintf(stderr, "[INFO] listening on %s:%s\n", ipstr, port);
+  fprintf(stderr, "[INFO] listening on 0.0.0.0:%s\n", port);
 
   freeaddrinfo(srv_entries);
 
@@ -51,11 +49,17 @@ int main(int argc, char *argv[]) {
       continue;
     }
 
+    get_ipstr(ipstr, (struct sockaddr *)&cliaddr);
+    fprintf(stderr, "[INFO] received new connection, socket = %d from %s:%d\n",
+            *connfd, ipstr, ntohs(cliaddr.sin_port));
+
     if (pthread_create(&conn_thread, NULL, handle_request, connfd) != 0) {
       perror("pthread_create");
       exit(EXIT_FAILURE);
     }
   }
+
+  free(connfd);
 
   return EXIT_SUCCESS;
 }
