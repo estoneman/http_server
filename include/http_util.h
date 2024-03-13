@@ -36,6 +36,7 @@
   10  // at most, this length will be 10
       // (index.html)
 
+#define HTTP_TIMEOUT -1
 #define HTTP_OK 200
 #define HTTP_BAD_REQUEST 400
 #define HTTP_FORBIDDEN 403
@@ -50,11 +51,6 @@
 
 #define MIN_PORT 1024
 #define MAX_PORT 65535
-
-typedef struct {
-  int major;
-  int minor;
-} HTTPVersionInfo;
 
 typedef struct {
   char method[HTTP_MAX_METHOD_LENGTH + 1];
@@ -72,33 +68,30 @@ void alloc_hdr(HTTPHeader *, size_t, size_t);
 void chk_alloc_err(void *, const char *, const char *, int);
 size_t fexists(const char *);
 int fill_socket_info(struct addrinfo **, struct addrinfo **, const char *);
-size_t find_crlf(char *);
+ssize_t find_crlf(char *);
 char *file_cmd(const char *);
+size_t freadable(const char *);
 void free_hdr(HTTPHeader *, size_t);
-void *handle_request(void *);
-char *get_ext(const char *);
+char *file_ext(const char *);
 char *get_file_type(const char *, size_t *);
 char *get_http_header(char *, HTTPHeader *, size_t);
 void *get_inetaddr(struct sockaddr *);
-void get_ipstr(char *, struct addrinfo *);
+void get_ipstr(char *, struct sockaddr *);
 size_t http_access(const char *);
 char *http_build_response(size_t, HTTPCommand, char *, size_t *);
-size_t http_readline(char *, char *);
-size_t http_recv(int, HTTPCommand *, HTTPHeader *, size_t *);
+void *handle_request(void *);
+ssize_t http_readline(char *, char *);
+ssize_t http_recv(int, char *);
 ssize_t http_send(int, char *, size_t);
 const char *http_status(size_t);
-void insert_beginning(char *, const char *, const char *);
-void insert_end(char *, const char *);
 int is_valid_port(const char *);
-char *mime_type(const char *);
 ssize_t parse_command(char *, HTTPCommand *);
 ssize_t parse_headers(char *, HTTPHeader *, size_t *);
-size_t freadable(const char *);
+size_t parse_request(char *, HTTPCommand *, HTTPHeader *, size_t *);
 char *read_file(char *, size_t *);
 ssize_t read_until(char *, char *, size_t, char);
 size_t strnins(char *, const char *, size_t n);
 size_t strrnins(char *, const char *, size_t n);
-int validate_port(const char *);
 
 // debug
 void print_headers(HTTPHeader *, size_t);
