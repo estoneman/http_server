@@ -2,7 +2,7 @@ CC:=$(shell which gcc)
 
 CFLAGS:=-Wall -Werror -Wextra \
 				-pedantic -fsanitize=address -fanalyzer \
-				-O0 -g -std=gnu11
+				-g -std=gnu11
 LDFLAGS:=-lpthread
 
 SRC_DIR:=src
