@@ -276,60 +276,57 @@ void *handle_request(void *connfdp) {
   struct stat st;
 
   int connfd = *(int *)connfdp;
-  size_t partial_response_code, len_response, n_hdrs, keep_alive;
+  size_t partial_response_code, len_response, n_hdrs;
 
   alloc_hdr(hdrs, HTTP_MAX_HDR_SZ, HTTP_MAX_HDRS);
   memset(&command, 0, sizeof(command));
 
-  keep_alive = 1;
-  do {
-    partial_response_code = http_recv(connfd, &command, hdrs, &n_hdrs);
+  partial_response_code = http_recv(connfd, &command, hdrs, &n_hdrs);
 
-    connection = get_http_header("Connection", hdrs, n_hdrs);
-    if (connection == NULL ||
-        strncmp(connection, "keep-alive", strlen("keep-alive")) != 0) {
-      keep_alive = 0;
-      connection = "close";
-    }
+  connection = get_http_header("Connection", hdrs, n_hdrs);
+  if (connection == NULL ||
+      strncmp(connection, "keep-alive", strlen("keep-alive")) != 0) {
+    connection = "close";
+  }
+
+  if (partial_response_code != HTTP_OK) {  // either 400, 405, or 505
+    snprintf(command.uri, sizeof(command.uri), "/%zu.html",
+             partial_response_code);
+    strnins(command.uri, ERROR_DOCUMENT_ROOT, strlen(ERROR_DOCUMENT_ROOT));
+    connection = "close";
+  } else {
+    strnins(command.uri, DOCUMENT_ROOT, strlen(DOCUMENT_ROOT));
 
     char index_htm[strlen(command.uri) + HTTP_INDEX_FILE_LENGTH + 1];
     char index_html[strlen(command.uri) + HTTP_INDEX_FILE_LENGTH + 1];
 
-    if (partial_response_code != HTTP_OK) {  // either 400, 405, or 505
-      snprintf(command.uri, sizeof(command.uri), "/%zu.html",
-               partial_response_code);
-      strnins(command.uri, ERROR_DOCUMENT_ROOT, strlen(ERROR_DOCUMENT_ROOT));
-      connection = "close";
-    } else {
-      strnins(command.uri, DOCUMENT_ROOT, strlen(DOCUMENT_ROOT));
-      stat(command.uri, &st);
-      if (S_ISDIR(st.st_mode)) {
-        snprintf(index_htm, sizeof(index_htm), "%s%s", command.uri, INDEX_HTM);
-        snprintf(index_html, sizeof(index_html), "%s%s", command.uri, INDEX_HTML);
+    stat(command.uri, &st);
+    if (S_ISDIR(st.st_mode)) {
+      snprintf(index_htm, sizeof(index_htm), "%s%s", command.uri, INDEX_HTM);
+      snprintf(index_html, sizeof(index_html), "%s%s", command.uri, INDEX_HTML);
 
-        if (fexists(index_htm) == HTTP_OK) {
-          strncpy(command.uri, index_htm, sizeof(command.uri));
-        } else if (fexists(index_html) == HTTP_OK) {
-          strncpy(command.uri, index_html, sizeof(command.uri));
-        }
-      }
-
-      partial_response_code = http_access(command.uri);
-      if (partial_response_code != HTTP_OK) {  // either 403 or 404
-        snprintf(command.uri, sizeof(command.uri), "%s/%zu.html",
-                 ERROR_DOCUMENT_ROOT, partial_response_code);
-        connection = "close";
+      if (fexists(index_htm) == HTTP_OK) {
+        strncpy(command.uri, index_htm, sizeof(command.uri));
+      } else if (fexists(index_html) == HTTP_OK) {
+        strncpy(command.uri, index_html, sizeof(command.uri));
       }
     }
 
-    send_buf = http_build_response(partial_response_code, command, connection,
-                                   &len_response);
+    partial_response_code = http_access(command.uri);
+    if (partial_response_code != HTTP_OK) {  // either 403 or 404
+      snprintf(command.uri, sizeof(command.uri), "%s/%zu.html",
+               ERROR_DOCUMENT_ROOT, partial_response_code);
+      connection = "close";
+    }
+  }
 
-    http_send(connfd, send_buf, len_response);
+  send_buf = http_build_response(partial_response_code, command, connection,
+                                 &len_response);
 
-    free_hdr(hdrs, HTTP_MAX_HDRS);
-    free(send_buf);
-  } while (keep_alive);
+  http_send(connfd, send_buf, len_response);
+
+  free_hdr(hdrs, HTTP_MAX_HDRS);
+  free(send_buf);
 
   close(connfd);
 
