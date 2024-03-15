@@ -278,20 +278,15 @@ void *handle_request(void *connfdp) {
   int connfd;
   size_t partial_response_code, len_response, n_hdrs, keep_alive;
   ssize_t nb_recv;
-  struct timeval rcv_timeo;
 
   connfd = *(int *)connfdp;
-  rcv_timeo.tv_sec = 10;
-  rcv_timeo.tv_usec = 0;
+  keep_alive = 0;
   do {
     alloc_hdr(http_hdrs, HTTP_MAX_HDR_SZ, HTTP_MAX_HDRS);
     memset(&http_cmd, 0, sizeof(http_cmd));
 
-    // TODO: separate receiver and parser
-    //   - allows you to not allocate more resources when recv timed out (just
-    //   exit loop and call it a day)
     recv_buf = alloc_buf(HTTP_MAX_RECV);
-    nb_recv = http_recv(connfd, recv_buf);
+    nb_recv = http_recv(connfd, recv_buf, keep_alive);
     if (nb_recv == HTTP_TIMEOUT) {
       keep_alive = 0;
       continue;
@@ -307,13 +302,6 @@ void *handle_request(void *connfdp) {
       connection = "close";
     } else {
       keep_alive = 1;
-      if (setsockopt(connfd, SOL_SOCKET, SO_RCVTIMEO, &rcv_timeo,
-                     sizeof(rcv_timeo)) < 0) {
-        free_hdr(http_hdrs, HTTP_MAX_HDRS);
-        perror("setsockopt");
-
-        return NULL;
-      }
     }
 
     if (partial_response_code != HTTP_OK) {  // either 400, 405, or 505
@@ -358,10 +346,9 @@ void *handle_request(void *connfdp) {
     free_hdr(http_hdrs, HTTP_MAX_HDRS);
     free(recv_buf);
     free(send_buf);
-
   } while (keep_alive);
 
-  fprintf(stderr, "[INFO] closing socket: %d\n", connfd);
+  fprintf(stderr, "[INFO] socket %d: closing\n", connfd);
   close(connfd);
 
   return NULL;
@@ -380,10 +367,29 @@ ssize_t http_readline(char *recv_buf, char *line_buf) {
   return needle_idx + 2;  // move past CRLF
 }
 
-ssize_t http_recv(int sockfd, char *recv_buf) {
+ssize_t http_recv(int sockfd, char *recv_buf, size_t keep_alive) {
   ssize_t nb_recv;
+  struct timeval rcv_timeo;
+
+  rcv_timeo.tv_usec = 0;
+  fprintf(stderr, "[INFO] socket %d: keep_alive=%zu, ", sockfd, keep_alive);
+  if (keep_alive) {
+    rcv_timeo.tv_sec = 10;
+    fprintf(stderr, "enabling timeout\n");
+  } else {
+    rcv_timeo.tv_sec = 0;
+    fprintf(stderr, "disabling timeout\n");
+  }
+
+  if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &rcv_timeo,
+                 sizeof(rcv_timeo)) < 0) {
+    perror("setsockopt");
+
+    exit(EXIT_FAILURE);
+  }
 
   if ((nb_recv = recv(sockfd, recv_buf, HTTP_MAX_RECV, 0)) < 0) {
+    fprintf(stderr, "[INFO] timeout received when keep_alive=%zu\n", keep_alive);
     return HTTP_TIMEOUT;
   }
   recv_buf[nb_recv] = '\0';
