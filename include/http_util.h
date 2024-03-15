@@ -81,7 +81,7 @@ size_t http_access(const char *);
 char *http_build_response(size_t, HTTPCommand, char *, size_t *);
 void *handle_request(void *);
 ssize_t http_readline(char *, char *);
-ssize_t http_recv(int, char *);
+ssize_t http_recv(int, char *, size_t);
 ssize_t http_send(int, char *, size_t);
 const char *http_status(size_t);
 int is_valid_port(const char *);
