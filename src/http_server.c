@@ -50,7 +50,7 @@ int main(int argc, char *argv[]) {
     }
 
     get_ipstr(ipstr, (struct sockaddr *)&cliaddr);
-    fprintf(stderr, "[INFO] received new connection, socket = %d from %s:%d\n",
+    fprintf(stderr, "[INFO] socket %d: new connection (%s:%d)\n",
             *connfd, ipstr, ntohs(cliaddr.sin_port));
 
     if (pthread_create(&conn_thread, NULL, handle_request, connfd) != 0) {
