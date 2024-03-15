@@ -155,11 +155,13 @@ void free_hdr(HTTPHeader *hdrs, size_t nmemb) {
 }
 
 char *file_ext(const char *fpath) {
-  char ext[HTTP_MAX_FILE_NAME_LENGTH + 1];
+  char *ext;
 
-  strcpy(ext, strrchr(fpath, '.'));
+  ext = strrchr(fpath, '.');
 
-  if (strncmp(ext, ".html", strlen(".html")) == 0) {
+  if (ext == NULL) {
+    return NULL;
+  } else if (strncmp(ext, ".html", strlen(".html")) == 0) {
     return "text/html";
   } else if (strncmp(ext, ".txt", strlen(".txt")) == 0) {
     return "text/plain";
@@ -177,7 +179,7 @@ char *file_ext(const char *fpath) {
     return "application/javascript";
   }
 
-  return NULL;
+  return NULL;  // unknown file extension
 }
 
 char *get_file_type(const char *fpath, size_t *free_buf_flag) {
@@ -389,7 +391,8 @@ ssize_t http_recv(int sockfd, char *recv_buf, size_t keep_alive) {
   }
 
   if ((nb_recv = recv(sockfd, recv_buf, HTTP_MAX_RECV, 0)) < 0) {
-    fprintf(stderr, "[INFO] timeout received when keep_alive=%zu\n", keep_alive);
+    fprintf(stderr, "[INFO] timeout received when keep_alive=%zu\n",
+            keep_alive);
     return HTTP_TIMEOUT;
   }
   recv_buf[nb_recv] = '\0';
