@@ -96,6 +96,5 @@ size_t strrnins(char *, const char *, size_t n);
 // debug
 void print_headers(HTTPHeader *, size_t);
 void print_command(HTTPCommand);
-void todo(const char *);
 
 #endif  // HTTP_SERVER_H
