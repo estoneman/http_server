@@ -374,14 +374,7 @@ ssize_t http_recv(int sockfd, char *recv_buf, size_t keep_alive) {
   struct timeval rcv_timeo;
 
   rcv_timeo.tv_usec = 0;
-  fprintf(stderr, "[INFO] socket %d: keep_alive=%zu, ", sockfd, keep_alive);
-  if (keep_alive) {
-    rcv_timeo.tv_sec = 10;
-    fprintf(stderr, "enabling timeout\n");
-  } else {
-    rcv_timeo.tv_sec = 0;
-    fprintf(stderr, "disabling timeout\n");
-  }
+  rcv_timeo.tv_sec = keep_alive ? 10 : 0;
 
   if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &rcv_timeo,
                  sizeof(rcv_timeo)) < 0) {
@@ -391,8 +384,6 @@ ssize_t http_recv(int sockfd, char *recv_buf, size_t keep_alive) {
   }
 
   if ((nb_recv = recv(sockfd, recv_buf, HTTP_MAX_RECV, 0)) < 0) {
-    fprintf(stderr, "[INFO] timeout received when keep_alive=%zu\n",
-            keep_alive);
     return HTTP_TIMEOUT;
   }
   recv_buf[nb_recv] = '\0';
@@ -630,8 +621,4 @@ void print_command(HTTPCommand command) {
   printf("  method: %s\n  uri: %s\n  version: %s\n", command.method,
          command.uri, command.version);
   puts("}");
-}
-
-void todo(const char *func) {
-  fprintf(stderr, "%s is not implemented.. yet\n", func);
 }
