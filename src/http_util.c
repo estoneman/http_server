@@ -264,6 +264,8 @@ char *http_build_response(size_t rc, HTTPCommand command, char *connection,
   memcpy(send_buf, headers, strlen(headers));
   memcpy(send_buf + strlen(headers), file_contents, nb_read);
 
+  free(file_contents);
+
   if (free_buf_flag == 1) {
     free(file_type);
   }
