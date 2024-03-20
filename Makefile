@@ -15,7 +15,7 @@ VALID_TARGETS:=build clean help
 all: $(DEFAULT_TARGET)
 
 $(DEFAULT_TARGET): % : $(SRC_DIR)/%.c
-  $(info building: $@)
+  $(info building: $(DEFAULT_TARGET))
   @mkdir -p $(OUT_DIR)
   $(CC) $(LDFLAGS) $(CFLAGS) -o $(OUT_DIR)/$@ $(SRC)
 
