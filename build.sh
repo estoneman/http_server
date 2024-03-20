@@ -6,7 +6,7 @@ set -xe
 dnf install -y libasan slirp4netns
 
 # build image
-podman build -t http_server .
+# podman build -t http_server .
 
 # add user id mappings to run rootless inside container
 usermod --add-subuids 100000-165535 --add-subgids 100000-165535 terminull
