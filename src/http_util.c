@@ -586,6 +586,7 @@ size_t strnins(char *dst, const char *src, size_t n) {
   strncpy(tmp, dst, dst_len);
   strncpy(dst, src, src_len);
   strncpy(dst + src_len, tmp, dst_len);
+  dst[src_len + dst_len] = '\0';
 
   return n;
 }
